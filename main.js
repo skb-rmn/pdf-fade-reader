@@ -303,7 +303,8 @@ function buildBlocksFromItems(itemsForOneFlow) {
       lines.push(line);
     }
 
-    line.parts.push({ x, y, h, s });
+    const w = typeof it.width === "number" ? it.width : 0;
+    line.parts.push({ x, y, h, w, s });
   }
 
   // sort lines top → bottom
@@ -321,13 +322,39 @@ function buildBlocksFromItems(itemsForOneFlow) {
       let prev = null;
 
       for (const p of line.parts) {
+        const cur = (p.s ?? "");
+        if (!cur) continue;
+
         if (prev) {
-          const gap = p.x - prev.x;
+          // IMPORTANT: measure gap from end of previous fragment, not its start
+          const prevEndX = prev.x + (prev.w || 0);
+          const gap = p.x - prevEndX;
+
           const spaceThresh = Math.max(4, avgH * 0.6);
-          if (gap > spaceThresh) text += " ";
+          const tinyGap = gap >= 0 && gap < Math.max(1.5, avgH * 0.18);
+
+          const prevFrag = (prev.s ?? "");
+          const prevLast = prevFrag.slice(-1);
+          const curFirst = cur.charAt(0);
+
+          const prevAllCapsShort = /^[A-Z]{2,5}$/.test(prevFrag.trim());
+          const curStartsLower = /^[a-z]/.test(curFirst);
+
+          // Case A: fragments that SHOULD be glued: "Nat"+"ral", "stud"+"ies"
+          if (tinyGap && /[a-z]/.test(prevLast) && /[a-z]/.test(curFirst)) {
+            // glue (do nothing)
+          }
+          // Case B: acronyms followed by lowercase word fragment: "HCI"+"ral" => "HCI ral"
+          else if (tinyGap && prevAllCapsShort && curStartsLower) {
+            text += " ";
+          }
+          // Normal word spacing
+          else if (gap > spaceThresh) {
+            text += " ";
+          }
         }
 
-        text += p.s;
+        text += cur;
         prev = p;
       }
 
