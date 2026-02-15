@@ -37,7 +37,6 @@ function getBodyFontEstimate() {
   return estimatedBodyFont || 10;
 }
 
-
 fadeStartVal.textContent = fadeStart.toFixed(2);
 
 forceSingleCol.addEventListener("change", () => {
@@ -162,7 +161,6 @@ function isHeadingLike(line) {
   return false;
 }
 
-
 function buildReadingDOM(struct) {
   reading.innerHTML = "";
 
@@ -170,7 +168,12 @@ function buildReadingDOM(struct) {
 
   for (const block of struct.blocks) {
     // Add placeholder for big vertical gaps (non-text / images / diagrams)
-    if (lastY !== null && block.yGap && block.yGap > 40) {
+    if (
+      lastY !== null &&
+      block.yGap &&
+      block.yGap > 40 &&
+      block.type === "para"
+    ) {
       const nontext = document.createElement("div");
       nontext.className = "nontext";
       nontext.textContent = "[Non-text content here (image/table/diagram)]";
@@ -221,15 +224,15 @@ function splitIntoColumns(items) {
   if (pts.length < 50) return { mode: "single", cols: [items] };
 
   // Estimate body font height
-  const heights = pts.map(p => p.h).sort((a,b)=>a-b);
+  const heights = pts.map((p) => p.h).sort((a, b) => a - b);
   const bodyH = heights[Math.floor(heights.length / 2)];
 
   // Filter to likely body text only
-  const bodyPts = pts.filter(p => p.h < bodyH * 1.2);
+  const bodyPts = pts.filter((p) => p.h < bodyH * 1.2);
 
   if (bodyPts.length < 30) return { mode: "single", cols: [items] };
 
-  const xs = bodyPts.map(p => p.x).sort((a,b)=>a-b);
+  const xs = bodyPts.map((p) => p.x).sort((a, b) => a - b);
   const minX = xs[0];
   const maxX = xs[xs.length - 1];
   const width = maxX - minX;
@@ -238,11 +241,10 @@ function splitIntoColumns(items) {
 
   const mid = (minX + maxX) / 2;
 
-  const left = items.filter(it => (it.transform?.[4] ?? 0) < mid);
-  const right = items.filter(it => (it.transform?.[4] ?? 0) >= mid);
+  const left = items.filter((it) => (it.transform?.[4] ?? 0) < mid);
+  const right = items.filter((it) => (it.transform?.[4] ?? 0) >= mid);
 
-  if (left.length < items.length * 0.2 ||
-      right.length < items.length * 0.2) {
+  if (left.length < items.length * 0.2 || right.length < items.length * 0.2) {
     return { mode: "single", cols: [items] };
   }
 
@@ -263,7 +265,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
 
     if (typeof x !== "number" || typeof y !== "number") continue;
 
-    let line = lines.find(L => Math.abs(L.y - y) <= yTol);
+    let line = lines.find((L) => Math.abs(L.y - y) <= yTol);
     if (!line) {
       line = { y, parts: [], avgHeight: 0 };
       lines.push(line);
@@ -275,40 +277,42 @@ function buildBlocksFromItems(itemsForOneFlow) {
   // sort lines top → bottom
   lines.sort((a, b) => b.y - a.y);
 
-  const builtLines = lines.map(line => {
-    line.parts.sort((a, b) => a.x - b.x);
+  const builtLines = lines
+    .map((line) => {
+      line.parts.sort((a, b) => a.x - b.x);
 
-    const avgH =
-      line.parts.reduce((sum, p) => sum + p.h, 0) /
-      Math.max(1, line.parts.length);
+      const avgH =
+        line.parts.reduce((sum, p) => sum + p.h, 0) /
+        Math.max(1, line.parts.length);
 
-    let text = "";
-    let prev = null;
+      let text = "";
+      let prev = null;
 
-    for (const p of line.parts) {
-      if (prev) {
-        const gap = p.x - prev.x;
-        const spaceThresh = Math.max(4, avgH * 0.6);
-        if (gap > spaceThresh) text += " ";
+      for (const p of line.parts) {
+        if (prev) {
+          const gap = p.x - prev.x;
+          const spaceThresh = Math.max(4, avgH * 0.6);
+          if (gap > spaceThresh) text += " ";
+        }
+
+        text += p.s.trim();
+        prev = p;
       }
 
-      text += p.s;
-      prev = p;
-    }
-
-    return {
-      y: line.y,
-      avgHeight: avgH,
-      text: text.replace(/\s{2,}/g, " ").trim(),
-    };
-  }).filter(l => l.text.length > 0);
+      return {
+        y: line.y,
+        avgHeight: avgH,
+        text: text.replace(/\s{2,}/g, " ").trim(),
+      };
+    })
+    .filter((l) => l.text.length > 0);
 
   const blocks = [];
   let prevLine = null;
   let currentPara = null;
 
   for (const line of builtLines) {
-    const yGap = prevLine ? (prevLine.y - line.y) : 0;
+    const yGap = prevLine ? prevLine.y - line.y : 0;
 
     const heading = isHeadingLike(line) && (!prevLine || yGap > 18);
 
@@ -318,7 +322,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
           type: "para",
           text: currentPara.text,
           y: currentPara.y,
-          yGap: currentPara.yGap
+          yGap: currentPara.yGap,
         });
         currentPara = null;
       }
@@ -327,9 +331,8 @@ function buildBlocksFromItems(itemsForOneFlow) {
         type: "heading",
         text: line.text,
         y: line.y,
-        yGap
+        yGap,
       });
-
     } else {
       const newPara = !currentPara || yGap > 16;
 
@@ -339,18 +342,21 @@ function buildBlocksFromItems(itemsForOneFlow) {
             type: "para",
             text: currentPara.text,
             y: currentPara.y,
-            yGap: currentPara.yGap
+            yGap: currentPara.yGap,
           });
         }
 
         currentPara = {
           text: line.text,
           y: line.y,
-          yGap
+          yGap,
         };
-
       } else {
-        currentPara.text += " " + line.text;
+        if (currentPara.text.endsWith("-")) {
+          currentPara.text = currentPara.text.slice(0, -1) + line.text;
+        } else {
+          currentPara.text += " " + line.text;
+        }
       }
     }
 
@@ -362,26 +368,27 @@ function buildBlocksFromItems(itemsForOneFlow) {
       type: "para",
       text: currentPara.text,
       y: currentPara.y,
-      yGap: currentPara.yGap
+      yGap: currentPara.yGap,
     });
   }
 
   return { blocks };
 }
 
-
-
 function reconstructStructure(textContent) {
   const items = textContent.items;
 
+  if (forceSingle) {
+    return buildBlocksFromItems(items);
+  }
+
   // 1) Split header vs body by font size
   let allHeights = items
-    .map(it => it.height || 0)
-    .filter(h => h > 0)
-    .sort((a,b) => a-b);
+    .map((it) => it.height || 0)
+    .filter((h) => h > 0)
+    .sort((a, b) => a - b);
 
-  const medianH =
-    allHeights[Math.floor(allHeights.length / 2)] || 10;
+  const medianH = allHeights[Math.floor(allHeights.length / 2)] || 10;
 
   const headerItems = [];
   const bodyItems = [];
@@ -404,10 +411,10 @@ function reconstructStructure(textContent) {
   // 4) Build body blocks
   let bodyStruct;
   if (mode === "two") {
-    const leftB  = buildBlocksFromItems(cols[0]).blocks;
+    const leftB = buildBlocksFromItems(cols[0]).blocks;
     const rightB = buildBlocksFromItems(cols[1]).blocks;
     const merged = [...leftB, ...rightB];
-    merged.sort((a,b) => b.y - a.y);
+    merged.sort((a, b) => b.y - a.y);
     bodyStruct = { blocks: merged };
   } else {
     bodyStruct = buildBlocksFromItems(bodyItems);
@@ -416,8 +423,6 @@ function reconstructStructure(textContent) {
   // 5) Combine
   return { blocks: [...headerStruct.blocks, ...bodyStruct.blocks] };
 }
-
-
 
 // ---------- Optional original view (side) ----------
 
@@ -466,7 +471,6 @@ async function renderPage(pageNumber) {
       viewer.innerHTML = "";
       originalPane.style.display = "none";
     }
-
   } catch (e) {
     console.error(e);
     reading.innerHTML = `<div class="nontext">Error extracting page. Check console.</div>`;
