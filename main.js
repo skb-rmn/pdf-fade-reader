@@ -202,42 +202,70 @@ function appendFadedText(el, text) {
 
 function splitIntoColumns(items) {
   if (forceSingle) return { mode: "single", cols: [items] };
+
   const pts = [];
 
   for (const it of items) {
     const s = (it.str ?? "").trim();
     if (!s) continue;
+
     const x = it.transform?.[4];
     const y = it.transform?.[5];
+    const h = it.height || 0;
+
     if (typeof x !== "number" || typeof y !== "number") continue;
-    pts.push({ x });
+
+    pts.push({ x, y, h });
   }
 
-  if (pts.length < 30) return { mode: "single", cols: [items] };
+  if (pts.length < 50) return { mode: "single", cols: [items] };
 
-  const xs = pts.map(p => p.x).sort((a, b) => a - b);
+  // Estimate body font height
+  const heights = pts.map(p => p.h).sort((a,b)=>a-b);
+  const bodyH = heights[Math.floor(heights.length / 2)];
+
+  // Filter to likely body text only
+  const bodyPts = pts.filter(p => p.h < bodyH * 1.2);
+
+  if (bodyPts.length < 30) return { mode: "single", cols: [items] };
+
+  const xs = bodyPts.map(p => p.x).sort((a,b)=>a-b);
   const minX = xs[0];
   const maxX = xs[xs.length - 1];
   const width = maxX - minX;
 
-  if (width < 200) return { mode: "single", cols: [items] };
+  if (width < 250) return { mode: "single", cols: [items] };
 
   const mid = (minX + maxX) / 2;
 
   const left = items.filter(it => (it.transform?.[4] ?? 0) < mid);
   const right = items.filter(it => (it.transform?.[4] ?? 0) >= mid);
 
-  if (left.length < items.length * 0.2 || right.length < items.length * 0.2) {
+  if (left.length < items.length * 0.2 ||
+      right.length < items.length * 0.2) {
     return { mode: "single", cols: [items] };
   }
 
   return { mode: "two", cols: [left, right] };
 }
 
+
 function reconstructStructure(textContent) {
   const items = textContent.items;
 
   function buildBlocksFromItems(itemsForOneFlow) {
+    // Ensure consistent top-to-bottom ordering
+    itemsForOneFlow = [...itemsForOneFlow].sort((a, b) => {
+      const ay = a.transform[5];
+      const by = b.transform[5];
+
+      if (Math.abs(ay - by) > 2) {
+        return by - ay; // top to bottom
+      }
+
+      return a.transform[4] - b.transform[4]; // left to right
+    });
+
     const yTol = 2;
     const lines = [];
 
@@ -280,7 +308,7 @@ function reconstructStructure(textContent) {
       return {
         y: line.y,
         avgHeight: avgH,
-        text: text.replace(/\s+/g, " ").trim(),
+        text: text.replace(/\s{2,}/g, " ").trim(),
       };
     }).filter(l => l.text.length > 0);
 
@@ -317,6 +345,7 @@ function reconstructStructure(textContent) {
           }
           currentPara = { text: line.text, y: line.y, yGap };
         } else {
+          // Handle hyphenated line breaks
           if (currentPara.text.endsWith("-")) {
             currentPara.text =
               currentPara.text.slice(0, -1) + line.text;
