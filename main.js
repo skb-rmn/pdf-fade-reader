@@ -322,35 +322,49 @@ function buildBlocksFromItems(itemsForOneFlow) {
       let prev = null;
 
       for (const p of line.parts) {
-        const cur = (p.s ?? "");
+        const raw = (p.s ?? "");
+        if (!raw) continue;
+
+        // Detect if PDF.js embedded a leading space inside the fragment (very common)
+        const hadLeadingWS = /^\s+/.test(raw);
+
+        // Strip leading whitespace; we decide spaces ourselves
+        const cur = raw.replace(/^\s+/, "");
         if (!cur) continue;
 
         if (prev) {
-          // IMPORTANT: measure gap from end of previous fragment, not its start
+          // measure gap from end of previous fragment, not its start
           const prevEndX = prev.x + (prev.w || 0);
           const gap = p.x - prevEndX;
 
           const spaceThresh = Math.max(4, avgH * 0.6);
-          const tinyGap = gap >= 0 && gap < Math.max(1.5, avgH * 0.18);
+          const tinyGap = gap >= -1 && gap < avgH * 0.35;
 
-          const prevFrag = (prev.s ?? "");
-          const prevLast = prevFrag.slice(-1);
+          const prevRaw = (prev.s ?? "");
+          const prevTrim = prevRaw.trim();
+          const prevLast = prevTrim.slice(-1);
           const curFirst = cur.charAt(0);
 
-          const prevAllCapsShort = /^[A-Z]{2,5}$/.test(prevFrag.trim());
+          const prevAllCapsShort = /^[A-Z]{2,5}$/.test(prevTrim);
           const curStartsLower = /^[a-z]/.test(curFirst);
 
-          // Case A: fragments that SHOULD be glued: "Nat"+"ral", "stud"+"ies"
-          if (tinyGap && /[a-z]/.test(prevLast) && /[a-z]/.test(curFirst)) {
-            // glue (do nothing)
+          const curIsPunct = /^[,.;:!?)]/.test(curFirst);
+
+          // 1) If the PDF fragment itself had leading whitespace, respect it (but normalize to ONE space)
+          if (hadLeadingWS && !text.endsWith(" ") && !curIsPunct) {
+            text += " ";
           }
-          // Case B: acronyms followed by lowercase word fragment: "HCI"+"ral" => "HCI ral"
+          // 2) glue lowercase fragments when gap is tiny: "Nat"+"ral" => "Natral"
+          else if (tinyGap && /[a-z]/.test(prevLast) && /[a-z]/.test(curFirst)) {
+            // glue (no space)
+          }
+          // 3) acronym + lowercase fragment should have space: "HCI"+"ral" => "HCI ral"
           else if (tinyGap && prevAllCapsShort && curStartsLower) {
-            text += " ";
+            if (!text.endsWith(" ")) text += " ";
           }
-          // Normal word spacing
+          // 4) normal spacing from geometry
           else if (gap > spaceThresh) {
-            text += " ";
+            if (!text.endsWith(" ") && !curIsPunct) text += " ";
           }
         }
 
@@ -476,15 +490,26 @@ function reconstructStructure(textContent) {
   const { mode, cols } = splitIntoColumns(bodyItems);
 
   if (mode === "two") {
-    // IMPORTANT: preserve reading order:
-    // left column top->bottom, then right column top->bottom
     const leftStruct = buildBlocksFromItems(cols[0]);
     const rightStruct = buildBlocksFromItems(cols[1]);
 
-    leftStruct.blocks.forEach(b => (b.section = "body"));
-    rightStruct.blocks.forEach(b => (b.section = "body"));
+    const mergedBody = [
+      ...leftStruct.blocks,
+      ...rightStruct.blocks
+    ];
 
-    return { blocks: [...headerStruct.blocks, ...leftStruct.blocks, ...rightStruct.blocks] };
+    // 🔥 THIS IS THE REAL FIX
+    // Sort by vertical position (top to bottom)
+    mergedBody.sort((a, b) => b.y - a.y);
+
+    mergedBody.forEach(b => (b.section = "body"));
+
+    return {
+      blocks: [
+        ...headerStruct.blocks,
+        ...mergedBody
+      ]
+    };
   }
 
   const bodyStruct = buildBlocksFromItems(bodyItems);
