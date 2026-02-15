@@ -170,8 +170,9 @@ function buildReadingDOM(struct) {
     // Add placeholder for big vertical gaps (non-text / images / diagrams)
     if (
       lastY !== null &&
+      block.section === "body" &&
       block.yGap &&
-      block.yGap > 40 &&
+      block.yGap > 60 &&
       block.type === "para"
     ) {
       const nontext = document.createElement("div");
@@ -251,6 +252,31 @@ function splitIntoColumns(items) {
   return { mode: "two", cols: [left, right] };
 }
 
+function normalizeLineText(raw) {
+  let t = raw ?? "";
+
+  // remove soft-hyphen (common in PDFs)
+  t = t.replace(/\u00AD/g, "");
+
+  // collapse whitespace
+  t = t.replace(/\s{2,}/g, " ").trim();
+
+  // fix bullet spacing (•Something -> • Something)
+  t = t.replace(/^•\s*/, "• ");
+
+  // SAFE de-hyphenation ONLY when it looks like a broken word:
+  // "capabilit- ies" or "capabilit-ies" -> "capabilities"
+  // Keep real hyphens like "user-centered" (no whitespace around hyphen).
+  t = t.replace(/([A-Za-z])-\s+([A-Za-z])/g, (m, a, b) => {
+    // If next part starts lowercase, it's almost always a broken word
+    if (b === b.toLowerCase()) return a + b;
+    return a + "-" + b; // keep if next part is Uppercase
+  });
+
+  return t;
+}
+
+
 function buildBlocksFromItems(itemsForOneFlow) {
   const yTol = 2;
   const lines = [];
@@ -302,11 +328,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
       return {
         y: line.y,
         avgHeight: avgH,
-        text: text
-                .replace(/\s*-\s*/g, "")        // fix broken hyphenation
-                .replace(/\s{2,}/g, " ")
-                .replace(/^•\s*/, "• ")
-                .trim(),
+        text: normalizeLineText(text),
       };
     })
     .filter((l) => l.text.length > 0);
@@ -357,10 +379,12 @@ function buildBlocksFromItems(itemsForOneFlow) {
         };
       } else {
         if (currentPara.text.endsWith("-")) {
-          currentPara.text = currentPara.text.slice(0, -1) + line.text;
+          // join hyphenated line-break words: "capabilit-" + "ies" => "capabilities"
+          currentPara.text = currentPara.text.slice(0, -1) + line.text.trimStart();
         } else {
           currentPara.text += " " + line.text;
         }
+        currentPara.text = normalizeLineText(currentPara.text);
       }
     }
 
@@ -382,14 +406,8 @@ function buildBlocksFromItems(itemsForOneFlow) {
 function reconstructStructure(textContent) {
   const items = textContent.items;
 
-  if (forceSingle) {
-    const struct = buildBlocksFromItems(items);
-    struct.blocks.sort((a,b) => b.y - a.y);
-    return struct;
-  }
-
-  // 1) Split header vs body by font size
-  let allHeights = items
+  // --- split header vs body by font height (always) ---
+  const allHeights = items
     .map((it) => it.height || 0)
     .filter((h) => h > 0)
     .sort((a, b) => a - b);
@@ -401,35 +419,39 @@ function reconstructStructure(textContent) {
 
   for (const it of items) {
     const h = it.height || 0;
-    if (h > medianH * 1.3) {
-      headerItems.push(it);
-    } else {
-      bodyItems.push(it);
-    }
+    if (h > medianH * 1.3) headerItems.push(it);
+    else bodyItems.push(it);
   }
 
-  // 2) Column detection on body only
+  const headerStruct = buildBlocksFromItems(headerItems);
+  headerStruct.blocks.forEach(b => (b.section = "header"));
+
+  // --- BODY ---
+  // If forceSingle: skip column logic but still use body-only
+  if (forceSingle) {
+    const bodyStruct = buildBlocksFromItems(bodyItems);
+    bodyStruct.blocks.forEach(b => (b.section = "body"));
+    return { blocks: [...headerStruct.blocks, ...bodyStruct.blocks] };
+  }
+
   const { mode, cols } = splitIntoColumns(bodyItems);
 
-  // 3) Build header blocks
-  const headerStruct = buildBlocksFromItems(headerItems);
-
-  // 4) Build body blocks
-  let bodyStruct;
   if (mode === "two") {
-    const leftB = buildBlocksFromItems(cols[0]).blocks;
-    const rightB = buildBlocksFromItems(cols[1]).blocks;
-    const merged = [...leftB, ...rightB];
-    merged.sort((a, b) => b.y - a.y);
-    bodyStruct = { blocks: merged };
-  } else {
-    bodyStruct = buildBlocksFromItems(bodyItems);
+    // IMPORTANT: preserve reading order:
+    // left column top->bottom, then right column top->bottom
+    const leftStruct = buildBlocksFromItems(cols[0]);
+    const rightStruct = buildBlocksFromItems(cols[1]);
+
+    leftStruct.blocks.forEach(b => (b.section = "body"));
+    rightStruct.blocks.forEach(b => (b.section = "body"));
+
+    return { blocks: [...headerStruct.blocks, ...leftStruct.blocks, ...rightStruct.blocks] };
   }
 
-  // 5) Combine
+  const bodyStruct = buildBlocksFromItems(bodyItems);
+  bodyStruct.blocks.forEach(b => (b.section = "body"));
   return { blocks: [...headerStruct.blocks, ...bodyStruct.blocks] };
 }
-
 // ---------- Optional original view (side) ----------
 
 async function renderOriginalCanvas(page) {
