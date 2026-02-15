@@ -376,6 +376,8 @@ async function renderOriginalCanvas(page) {
 // ---------- Main render ----------
 
 async function renderPage(pageNumber) {
+  reading.scrollTop = 0;
+
   if (!pdfDoc) return;
 
   isRendering = true;
@@ -411,3 +413,8 @@ async function renderPage(pageNumber) {
     renderPage(next);
   }
 }
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") nextBtn.click();
+  if (e.key === "ArrowLeft") prevBtn.click();
+});
