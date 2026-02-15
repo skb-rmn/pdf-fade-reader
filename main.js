@@ -31,6 +31,13 @@ let fadeStart = parseFloat(fadeStartSlider.value);
 
 let forceSingle = false;
 
+let estimatedBodyFont = 0;
+
+function getBodyFontEstimate() {
+  return estimatedBodyFont || 10;
+}
+
+
 fadeStartVal.textContent = fadeStart.toFixed(2);
 
 forceSingleCol.addEventListener("change", () => {
@@ -128,9 +135,33 @@ function fadeWord(word) {
 }
 
 function isHeadingLike(line) {
-  // simple heuristic: shorter line + big font
-  return line.avgHeight >= 14 && line.text.length <= 60;
+  const text = line.text.trim();
+
+  // Empty lines are not headings
+  if (!text) return false;
+
+  // Detect numbered headings: "2", "2.1", "3 Background"
+  if (/^\d+(\.\d+)*\s+[A-Z]/.test(text)) return true;
+
+  // Detect single number section headings: "2"
+  if (/^\d+(\.\d+)*$/.test(text)) return true;
+
+  // Detect ALL CAPS short lines
+  if (text.length < 80 && text === text.toUpperCase() && /[A-Z]/.test(text)) {
+    return true;
+  }
+
+  // Detect "Abstract"
+  if (/^abstract$/i.test(text)) return true;
+
+  // Font-size based fallback
+  if (line.avgHeight > 1.3 * getBodyFontEstimate()) {
+    return true;
+  }
+
+  return false;
 }
+
 
 function buildReadingDOM(struct) {
   reading.innerHTML = "";
@@ -244,7 +275,7 @@ function reconstructStructure(textContent) {
         }
         text += p.s;
         prev = p;
-      }
+      }    
 
       return {
         y: line.y,
@@ -252,6 +283,15 @@ function reconstructStructure(textContent) {
         text: text.replace(/\s+/g, " ").trim(),
       };
     }).filter(l => l.text.length > 0);
+
+    // Estimate typical body font size (median height)
+    if (builtLines.length > 0) {
+      const heights = builtLines
+        .map(l => l.avgHeight)
+        .sort((a, b) => a - b);
+
+      estimatedBodyFont = heights[Math.floor(heights.length / 2)];
+    }
 
     const blocks = [];
     let prevLine = null;
