@@ -295,14 +295,18 @@ function buildBlocksFromItems(itemsForOneFlow) {
           if (gap > spaceThresh) text += " ";
         }
 
-        text += p.s.trim();
+        text += p.s;
         prev = p;
       }
 
       return {
         y: line.y,
         avgHeight: avgH,
-        text: text.replace(/\s{2,}/g, " ").trim(),
+        text: text
+                .replace(/\s*-\s*/g, "")        // fix broken hyphenation
+                .replace(/\s{2,}/g, " ")
+                .replace(/^•\s*/, "• ")
+                .trim(),
       };
     })
     .filter((l) => l.text.length > 0);
@@ -379,7 +383,9 @@ function reconstructStructure(textContent) {
   const items = textContent.items;
 
   if (forceSingle) {
-    return buildBlocksFromItems(items);
+    const struct = buildBlocksFromItems(items);
+    struct.blocks.sort((a,b) => b.y - a.y);
+    return struct;
   }
 
   // 1) Split header vs body by font size
