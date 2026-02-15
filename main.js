@@ -165,10 +165,12 @@ function buildReadingDOM(struct) {
   reading.innerHTML = "";
 
   let lastY = null;
+  let seenBodyPara = false;
 
   for (const block of struct.blocks) {
     // Add placeholder for big vertical gaps (non-text / images / diagrams)
     if (
+      seenBodyPara &&
       lastY !== null &&
       block.section === "body" &&
       block.yGap &&
@@ -189,6 +191,10 @@ function buildReadingDOM(struct) {
       const p = document.createElement("p");
       appendFadedText(p, block.text);
       reading.appendChild(p);
+    }
+
+    if (block.section === "body" && block.type === "para") {
+      seenBodyPara = true;
     }
 
     lastY = block.y;
@@ -255,27 +261,27 @@ function splitIntoColumns(items) {
 function normalizeLineText(raw) {
   let t = raw ?? "";
 
-  // remove soft-hyphen (common in PDFs)
+  // 0) normalize common PDF hyphen/dash glyphs to ASCII '-'
+  t = t.replace(/[\u2010\u2011\u2012\u2013\u2212]/g, "-"); // ‐-‒–−
+
+  // 1) remove soft hyphen (common in PDFs)
   t = t.replace(/\u00AD/g, "");
 
-  // collapse whitespace
+  // 2) collapse whitespace
   t = t.replace(/\s{2,}/g, " ").trim();
 
-  // fix bullet spacing (•Something -> • Something)
+  // 3) fix bullet spacing (•Something -> • Something)
   t = t.replace(/^•\s*/, "• ");
 
-  // SAFE de-hyphenation ONLY when it looks like a broken word:
-  // "capabilit- ies" or "capabilit-ies" -> "capabilities"
-  // Keep real hyphens like "user-centered" (no whitespace around hyphen).
+  // 4) SAFE de-hyphenation ONLY when it looks like a broken word:
+  // "stud- ies" -> "studies"
   t = t.replace(/([A-Za-z])-\s+([A-Za-z])/g, (m, a, b) => {
-    // If next part starts lowercase, it's almost always a broken word
-    if (b === b.toLowerCase()) return a + b;
-    return a + "-" + b; // keep if next part is Uppercase
+    if (b === b.toLowerCase()) return a + b; // broken word
+    return a + "-" + b;                       // keep real hyphen
   });
 
   return t;
 }
-
 
 function buildBlocksFromItems(itemsForOneFlow) {
   const yTol = 2;
@@ -333,6 +339,12 @@ function buildBlocksFromItems(itemsForOneFlow) {
     })
     .filter((l) => l.text.length > 0);
 
+  // Update estimated body font once per page/flow (median line height)
+  if (builtLines.length) {
+    const hs = builtLines.map(l => l.avgHeight).sort((a,b) => a-b);
+    estimatedBodyFont = hs[Math.floor(hs.length / 2)] || estimatedBodyFont;
+  }
+
   const blocks = [];
   let prevLine = null;
   let currentPara = null;
@@ -378,9 +390,9 @@ function buildBlocksFromItems(itemsForOneFlow) {
           yGap,
         };
       } else {
-        if (currentPara.text.endsWith("-")) {
+        if (/[‐-‒–−-]$/.test(currentPara.text)) {
           // join hyphenated line-break words: "capabilit-" + "ies" => "capabilities"
-          currentPara.text = currentPara.text.slice(0, -1) + line.text.trimStart();
+          currentPara.text = currentPara.text.replace(/[‐-‒–−-]$/, "") + line.text.trimStart();
         } else {
           currentPara.text += " " + line.text;
         }
