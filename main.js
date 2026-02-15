@@ -317,7 +317,12 @@ function reconstructStructure(textContent) {
           }
           currentPara = { text: line.text, y: line.y, yGap };
         } else {
-          currentPara.text += " " + line.text;
+          if (currentPara.text.endsWith("-")) {
+            currentPara.text =
+              currentPara.text.slice(0, -1) + line.text;
+          } else {
+            currentPara.text += " " + line.text;
+          }
         }
       }
 
@@ -340,7 +345,10 @@ function reconstructStructure(textContent) {
   const left = buildBlocksFromItems(cols[0]);
   const right = buildBlocksFromItems(cols[1]);
 
-  return { blocks: [...left.blocks, ...right.blocks] };
+  const merged = [...left.blocks, ...right.blocks];
+  merged.sort((a, b) => b.y - a.y);
+  return { blocks: merged };
+
 }
 
 
