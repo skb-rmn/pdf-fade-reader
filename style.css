@@ -1,0 +1,104 @@
+:root {
+  --fadeOpacity: 0.35;
+}
+
+body {
+  margin: 16px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #fafafa;
+}
+
+.toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.slider, .toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 0fr; /* original hidden by default */
+  gap: 16px;
+  align-items: start;
+}
+
+.layout.showOriginal {
+  grid-template-columns: 1fr 1fr;
+}
+
+.readingPane {
+  background: white;
+  padding: 18px 22px;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+#reading {
+  max-width: 760px;
+  line-height: 1.7;
+  font-size: 18px;
+}
+
+#reading h2 {
+  font-size: 28px;
+  margin: 22px 0 12px;
+}
+
+#reading p {
+  margin: 10px 0;
+}
+
+.placeholder {
+  height: 18px;
+}
+
+.nontext {
+  margin: 14px 0;
+  padding: 10px 12px;
+  border-left: 3px solid #ddd;
+  background: #f6f6f6;
+  color: #666;
+  font-size: 14px;
+}
+
+.fadeTail {
+  opacity: var(--fadeOpacity);
+}
+
+/* optional: original viewer panel */
+.originalPane {
+  display: none;
+  background: white;
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+.layout.showOriginal .originalPane {
+  display: block;
+}
+
+.page {
+  position: relative;
+  display: inline-block;
+  background: white;
+}
+
+.page canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

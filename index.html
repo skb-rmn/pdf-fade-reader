@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF Fade Reader (Reading Mode)</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <div class="toolbar">
+      <input type="file" id="file" accept="application/pdf" />
+
+      <div class="nav">
+        <button id="prev" disabled>Prev</button>
+        <span id="pageInfo">Page 0 / 0</span>
+        <button id="next" disabled>Next</button>
+      </div>
+
+      <label class="slider">
+        Fade:
+        <input type="range" id="fade" min="0" max="1" step="0.05" value="0.35" />
+        <span id="fadeVal">0.35</span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" id="showOriginal" />
+        Show original (side)
+      </label>
+    </div>
+
+    <div class="layout">
+      <div class="readingPane">
+        <div id="reading"></div>
+      </div>
+
+      <div class="originalPane" id="originalPane">
+        <div id="viewer"></div>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
