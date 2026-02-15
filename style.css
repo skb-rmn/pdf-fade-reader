@@ -48,17 +48,20 @@ body {
 
 #reading {
   max-width: 760px;
-  line-height: 1.7;
-  font-size: 18px;
-}
-
-#reading h2 {
-  font-size: 28px;
-  margin: 22px 0 12px;
+  line-height: 1.85;
+  font-size: 19px;
+  color: #111;
+  font-family: Georgia, "Times New Roman", serif;
 }
 
 #reading p {
-  margin: 10px 0;
+  margin: 12px 0;
+}
+
+#reading h2 {
+  font-size: 30px;
+  margin: 26px 0 12px;
+  line-height: 1.2;
 }
 
 .placeholder {
@@ -76,6 +79,7 @@ body {
 
 .fadeTail {
   opacity: var(--fadeOpacity);
+  color: #666;
 }
 
 /* optional: original viewer panel */
