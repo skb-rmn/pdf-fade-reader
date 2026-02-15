@@ -69,11 +69,12 @@ body {
 }
 
 .nontext {
-  margin: 14px 0;
-  padding: 10px 12px;
-  border-left: 3px solid #ddd;
-  background: #f6f6f6;
-  color: #666;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px dashed #cfcfcf;
+  background: #f7f7f7;
+  color: #555;
   font-size: 14px;
 }
 

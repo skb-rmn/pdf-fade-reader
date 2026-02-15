@@ -20,6 +20,7 @@ const originalPane = document.getElementById("originalPane");
 
 const fadeStartSlider = document.getElementById("fadeStart");
 const fadeStartVal = document.getElementById("fadeStartVal");
+const forceSingleCol = document.getElementById("forceSingleCol");
 
 let pdfDoc = null;
 let currentPage = 1;
@@ -27,7 +28,15 @@ let isRendering = false;
 let pendingPage = null;
 
 let fadeStart = parseFloat(fadeStartSlider.value);
+
+let forceSingle = false;
+
 fadeStartVal.textContent = fadeStart.toFixed(2);
+
+forceSingleCol.addEventListener("change", () => {
+  forceSingle = forceSingleCol.checked;
+  if (pdfDoc) queueRender(currentPage);
+});
 
 function setFadeOpacity(v) {
   document.documentElement.style.setProperty("--fadeOpacity", v);
@@ -161,6 +170,7 @@ function appendFadedText(el, text) {
 }
 
 function splitIntoColumns(items) {
+  if (forceSingle) return { mode: "single", cols: [items] };
   const pts = [];
 
   for (const it of items) {
