@@ -18,10 +18,16 @@ const showOriginal = document.getElementById("showOriginal");
 const layout = document.querySelector(".layout");
 const originalPane = document.getElementById("originalPane");
 
+const fadeStartSlider = document.getElementById("fadeStart");
+const fadeStartVal = document.getElementById("fadeStartVal");
+
 let pdfDoc = null;
 let currentPage = 1;
 let isRendering = false;
 let pendingPage = null;
+
+let fadeStart = parseFloat(fadeStartSlider.value);
+fadeStartVal.textContent = fadeStart.toFixed(2);
 
 function setFadeOpacity(v) {
   document.documentElement.style.setProperty("--fadeOpacity", v);
@@ -32,6 +38,13 @@ setFadeOpacity(fadeSlider.value);
 
 fadeSlider.addEventListener("input", () => {
   setFadeOpacity(fadeSlider.value);
+});
+
+fadeStartSlider.addEventListener("input", () => {
+  fadeStart = parseFloat(fadeStartSlider.value);
+  fadeStartVal.textContent = fadeStart.toFixed(2);
+  // re-render current page for clean update
+  if (pdfDoc) queueRender(currentPage);
 });
 
 showOriginal.addEventListener("change", () => {
@@ -89,7 +102,7 @@ function queueRender(pageNumber) {
 // ---------- Reading-mode extraction ----------
 
 function fadeWord(word) {
-  const half = Math.ceil(word.length / 2);
+  const half = Math.ceil(word.length * fadeStart);
   const first = word.slice(0, half);
   const second = word.slice(half);
 

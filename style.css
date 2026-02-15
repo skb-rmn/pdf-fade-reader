@@ -80,6 +80,7 @@ body {
 .fadeTail {
   opacity: var(--fadeOpacity);
   color: #666;
+  transition: opacity 0.15s ease;
 }
 
 /* optional: original viewer panel */
