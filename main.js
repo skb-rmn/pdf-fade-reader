@@ -249,136 +249,174 @@ function splitIntoColumns(items) {
   return { mode: "two", cols: [left, right] };
 }
 
+function buildBlocksFromItems(itemsForOneFlow) {
+  const yTol = 2;
+  const lines = [];
+
+  for (const it of itemsForOneFlow) {
+    const s = (it.str ?? "").trimEnd();
+    if (!s) continue;
+
+    const x = it.transform?.[4];
+    const y = it.transform?.[5];
+    const h = it.height || 0;
+
+    if (typeof x !== "number" || typeof y !== "number") continue;
+
+    let line = lines.find(L => Math.abs(L.y - y) <= yTol);
+    if (!line) {
+      line = { y, parts: [], avgHeight: 0 };
+      lines.push(line);
+    }
+
+    line.parts.push({ x, y, h, s });
+  }
+
+  // sort lines top → bottom
+  lines.sort((a, b) => b.y - a.y);
+
+  const builtLines = lines.map(line => {
+    line.parts.sort((a, b) => a.x - b.x);
+
+    const avgH =
+      line.parts.reduce((sum, p) => sum + p.h, 0) /
+      Math.max(1, line.parts.length);
+
+    let text = "";
+    let prev = null;
+
+    for (const p of line.parts) {
+      if (prev) {
+        const gap = p.x - prev.x;
+        const spaceThresh = Math.max(4, avgH * 0.6);
+        if (gap > spaceThresh) text += " ";
+      }
+
+      text += p.s;
+      prev = p;
+    }
+
+    return {
+      y: line.y,
+      avgHeight: avgH,
+      text: text.replace(/\s{2,}/g, " ").trim(),
+    };
+  }).filter(l => l.text.length > 0);
+
+  const blocks = [];
+  let prevLine = null;
+  let currentPara = null;
+
+  for (const line of builtLines) {
+    const yGap = prevLine ? (prevLine.y - line.y) : 0;
+
+    const heading = isHeadingLike(line) && (!prevLine || yGap > 18);
+
+    if (heading) {
+      if (currentPara) {
+        blocks.push({
+          type: "para",
+          text: currentPara.text,
+          y: currentPara.y,
+          yGap: currentPara.yGap
+        });
+        currentPara = null;
+      }
+
+      blocks.push({
+        type: "heading",
+        text: line.text,
+        y: line.y,
+        yGap
+      });
+
+    } else {
+      const newPara = !currentPara || yGap > 16;
+
+      if (newPara) {
+        if (currentPara) {
+          blocks.push({
+            type: "para",
+            text: currentPara.text,
+            y: currentPara.y,
+            yGap: currentPara.yGap
+          });
+        }
+
+        currentPara = {
+          text: line.text,
+          y: line.y,
+          yGap
+        };
+
+      } else {
+        currentPara.text += " " + line.text;
+      }
+    }
+
+    prevLine = line;
+  }
+
+  if (currentPara) {
+    blocks.push({
+      type: "para",
+      text: currentPara.text,
+      y: currentPara.y,
+      yGap: currentPara.yGap
+    });
+  }
+
+  return { blocks };
+}
+
+
 
 function reconstructStructure(textContent) {
   const items = textContent.items;
 
-  function buildBlocksFromItems(itemsForOneFlow) {
-    // Ensure consistent top-to-bottom ordering
-    itemsForOneFlow = [...itemsForOneFlow].sort((a, b) => {
-      const ay = a.transform[5];
-      const by = b.transform[5];
+  // 1) Split header vs body by font size
+  let allHeights = items
+    .map(it => it.height || 0)
+    .filter(h => h > 0)
+    .sort((a,b) => a-b);
 
-      if (Math.abs(ay - by) > 2) {
-        return by - ay; // top to bottom
-      }
+  const medianH =
+    allHeights[Math.floor(allHeights.length / 2)] || 10;
 
-      return a.transform[4] - b.transform[4]; // left to right
-    });
+  const headerItems = [];
+  const bodyItems = [];
 
-    const yTol = 2;
-    const lines = [];
-
-    for (const it of itemsForOneFlow) {
-      const s = (it.str ?? "").trimEnd();
-      if (!s) continue;
-
-      const x = it.transform[4];
-      const y = it.transform[5];
-      const h = it.height || 0;
-
-      let line = lines.find(L => Math.abs(L.y - y) <= yTol);
-      if (!line) {
-        line = { y, parts: [], avgHeight: 0, text: "" };
-        lines.push(line);
-      }
-      line.parts.push({ x, y, h, s });
+  for (const it of items) {
+    const h = it.height || 0;
+    if (h > medianH * 1.3) {
+      headerItems.push(it);
+    } else {
+      bodyItems.push(it);
     }
-
-    lines.sort((a, b) => b.y - a.y);
-
-    const builtLines = lines.map(line => {
-      line.parts.sort((a, b) => a.x - b.x);
-      const avgH =
-        line.parts.reduce((sum, p) => sum + p.h, 0) / Math.max(1, line.parts.length);
-
-      let text = "";
-      let prev = null;
-
-      for (const p of line.parts) {
-        if (prev) {
-          const gap = p.x - prev.x;
-          const spaceThresh = Math.max(4, avgH * 0.6);
-          if (gap > spaceThresh) text += " ";
-        }
-        text += p.s;
-        prev = p;
-      }    
-
-      return {
-        y: line.y,
-        avgHeight: avgH,
-        text: text.replace(/\s{2,}/g, " ").trim(),
-      };
-    }).filter(l => l.text.length > 0);
-
-    // Estimate typical body font size (median height)
-    if (builtLines.length > 0) {
-      const heights = builtLines
-        .map(l => l.avgHeight)
-        .sort((a, b) => a - b);
-
-      estimatedBodyFont = heights[Math.floor(heights.length / 2)];
-    }
-
-    const blocks = [];
-    let prevLine = null;
-    let currentPara = null;
-
-    for (const line of builtLines) {
-      const yGap = prevLine ? (prevLine.y - line.y) : 0;
-
-      const heading = isHeadingLike(line) && (!prevLine || yGap > 18);
-
-      if (heading) {
-        if (currentPara) {
-          blocks.push({ type: "para", text: currentPara.text, y: currentPara.y, yGap: currentPara.yGap });
-          currentPara = null;
-        }
-        blocks.push({ type: "heading", text: line.text, y: line.y, yGap });
-      } else {
-        const newPara = !currentPara || yGap > 16;
-
-        if (newPara) {
-          if (currentPara) {
-            blocks.push({ type: "para", text: currentPara.text, y: currentPara.y, yGap: currentPara.yGap });
-          }
-          currentPara = { text: line.text, y: line.y, yGap };
-        } else {
-          // Handle hyphenated line breaks
-          if (currentPara.text.endsWith("-")) {
-            currentPara.text =
-              currentPara.text.slice(0, -1) + line.text;
-          } else {
-            currentPara.text += " " + line.text;
-          }
-        }
-      }
-
-      prevLine = line;
-    }
-
-    if (currentPara) {
-      blocks.push({ type: "para", text: currentPara.text, y: currentPara.y, yGap: currentPara.yGap });
-    }
-
-    return { blocks };
   }
 
-  const { mode, cols } = splitIntoColumns(items);
+  // 2) Column detection on body only
+  const { mode, cols } = splitIntoColumns(bodyItems);
 
-  if (mode === "single") {
-    return buildBlocksFromItems(cols[0]);
+  // 3) Build header blocks
+  const headerStruct = buildBlocksFromItems(headerItems);
+
+  // 4) Build body blocks
+  let bodyStruct;
+  if (mode === "two") {
+    const leftB  = buildBlocksFromItems(cols[0]).blocks;
+    const rightB = buildBlocksFromItems(cols[1]).blocks;
+    const merged = [...leftB, ...rightB];
+    merged.sort((a,b) => b.y - a.y);
+    bodyStruct = { blocks: merged };
+  } else {
+    bodyStruct = buildBlocksFromItems(bodyItems);
   }
 
-  const left = buildBlocksFromItems(cols[0]);
-  const right = buildBlocksFromItems(cols[1]);
-
-  const merged = [...left.blocks, ...right.blocks];
-  merged.sort((a, b) => b.y - a.y);
-  return { blocks: merged };
-
+  // 5) Combine
+  return { blocks: [...headerStruct.blocks, ...bodyStruct.blocks] };
 }
+
 
 
 // ---------- Optional original view (side) ----------
