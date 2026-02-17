@@ -230,28 +230,71 @@ function splitIntoColumns(items) {
 
   if (pts.length < 50) return { mode: "single", cols: [items] };
 
-  // Estimate body font height
-  const heights = pts.map((p) => p.h).sort((a, b) => a - b);
+  // Estimate body font height (median)
+  const heights = pts.map(p => p.h).sort((a,b)=>a-b);
   const bodyH = heights[Math.floor(heights.length / 2)];
 
-  // Filter to likely body text only
-  const bodyPts = pts.filter((p) => p.h < bodyH * 1.2);
+  // Filter likely body text
+  const bodyPts = pts.filter(p => p.h <= bodyH * 1.2);
 
   if (bodyPts.length < 30) return { mode: "single", cols: [items] };
 
-  const xs = bodyPts.map((p) => p.x).sort((a, b) => a - b);
+  const xs = bodyPts.map(p => p.x).sort((a,b)=>a-b);
+
   const minX = xs[0];
   const maxX = xs[xs.length - 1];
   const width = maxX - minX;
 
-  if (width < 250) return { mode: "single", cols: [items] };
+  // 🔥 adaptive width check instead of fixed 250
+  if (width < bodyH * 15) {
+    return { mode: "single", cols: [items] };
+  }
 
-  const mid = (minX + maxX) / 2;
+  // Detect largest horizontal gap (true column separator)
+  let maxGap = 0;
+  let gapIndex = -1;
 
-  const left = items.filter((it) => (it.transform?.[4] ?? 0) < mid);
-  const right = items.filter((it) => (it.transform?.[4] ?? 0) >= mid);
+  for (let i = 1; i < xs.length; i++) {
+    const gap = xs[i] - xs[i - 1];
+    if (gap > maxGap) {
+      maxGap = gap;
+      gapIndex = i;
+    }
+  }
 
-  if (left.length < items.length * 0.2 || right.length < items.length * 0.2) {
+  // If no strong gap → single column
+  // Require a substantial whitespace gap
+  if (maxGap < width * 0.15) {
+    return { mode: "single", cols: [items] };
+  }
+
+  // Separator is between these two X clusters
+  const separator = (xs[gapIndex - 1] + xs[gapIndex]) / 2;
+
+  const left = [];
+  const right = [];
+
+  for (const it of items) {
+    const x = it.transform?.[4];
+    if (typeof x !== "number") continue;
+
+    if (x < separator) left.push(it);
+    else right.push(it);
+  }
+
+  // Validate real separation using X-centroids
+  const leftXs = left.map(it => it.transform?.[4]).filter(x=>typeof x==="number");
+  const rightXs = right.map(it => it.transform?.[4]).filter(x=>typeof x==="number");
+
+  if (!leftXs.length || !rightXs.length) {
+    return { mode: "single", cols: [items] };
+  }
+
+  const leftAvg = leftXs.reduce((a,b)=>a+b,0)/leftXs.length;
+  const rightAvg = rightXs.reduce((a,b)=>a+b,0)/rightXs.length;
+
+  // 🔥 If columns are too close, it's actually single
+  if (Math.abs(rightAvg - leftAvg) < bodyH * 10) {
     return { mode: "single", cols: [items] };
   }
 
@@ -297,7 +340,14 @@ function buildBlocksFromItems(itemsForOneFlow) {
 
     if (typeof x !== "number" || typeof y !== "number") continue;
 
-    let line = lines.find((L) => Math.abs(L.y - y) <= yTol);
+    let line = lines.find((L) => {
+      if (Math.abs(L.y - y) > yTol) return false;
+
+      // NEW: prevent cross-column merge
+      const existingX = L.parts[0]?.x ?? 0;
+      return Math.abs(existingX - x) < 200; // column separation threshold
+    });
+
     if (!line) {
       line = { y, parts: [], avgHeight: 0 };
       lines.push(line);
@@ -374,6 +424,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
 
       return {
         y: line.y,
+        x: line.parts[0]?.x || 0,
         avgHeight: avgH,
         text: normalizeLineText(text),
       };
@@ -410,10 +461,11 @@ function buildBlocksFromItems(itemsForOneFlow) {
         type: "heading",
         text: line.text,
         y: line.y,
+        x: line.x,
         yGap,
       });
     } else {
-      const newPara = !currentPara || yGap > 16;
+      const newPara = !currentPara || yGap > estimatedBodyFont * 1.4;
 
       if (newPara) {
         if (currentPara) {
@@ -421,6 +473,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
             type: "para",
             text: currentPara.text,
             y: currentPara.y,
+            x: line.x,
             yGap: currentPara.yGap,
           });
         }
@@ -428,6 +481,7 @@ function buildBlocksFromItems(itemsForOneFlow) {
         currentPara = {
           text: line.text,
           y: line.y,
+          x: line.x || 0,
           yGap,
         };
       } else {
@@ -472,8 +526,22 @@ function reconstructStructure(textContent) {
 
   for (const it of items) {
     const h = it.height || 0;
-    if (h > medianH * 1.3) headerItems.push(it);
-    else bodyItems.push(it);
+    if (h > medianH * 1.3) {
+      headerItems.push(it);
+    } else {
+      const txt = (it.str || "").trim();
+
+      // FILTER NAVIGATION / PAGE CHROME
+      if (
+        /Table of Contents/i.test(txt) ||
+        /^previous$/i.test(txt) ||
+        /^next$/i.test(txt) ||
+        /^\|\s*$/.test(txt)
+      ) {
+        continue;
+      }
+      bodyItems.push(it);
+    }
   }
 
   const headerStruct = buildBlocksFromItems(headerItems);
@@ -493,21 +561,18 @@ function reconstructStructure(textContent) {
     const leftStruct = buildBlocksFromItems(cols[0]);
     const rightStruct = buildBlocksFromItems(cols[1]);
 
-    const mergedBody = [
-      ...leftStruct.blocks,
-      ...rightStruct.blocks
-    ];
+    leftStruct.blocks.forEach(b => (b.section = "body"));
+    rightStruct.blocks.forEach(b => (b.section = "body"));
 
-    // 🔥 THIS IS THE REAL FIX
-    // Sort by vertical position (top to bottom)
-    mergedBody.sort((a, b) => b.y - a.y);
-
-    mergedBody.forEach(b => (b.section = "body"));
+    // 🧠 Academic PDF reading order:
+    // Entire LEFT column first
+    // Then entire RIGHT column
 
     return {
       blocks: [
         ...headerStruct.blocks,
-        ...mergedBody
+        ...leftStruct.blocks,
+        ...rightStruct.blocks
       ]
     };
   }
@@ -553,6 +618,7 @@ async function renderPage(pageNumber) {
     reading.innerHTML = "Extracting text…";
     const textContent = await page.getTextContent();
     const struct = reconstructStructure(textContent);
+    console.log(struct);
     buildReadingDOM(struct);
 
     // 2) Optional original view
